@@ -206,6 +206,22 @@ def init_tables():
             username TEXT UNIQUE NOT NULL,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+        """,
+        # جدول رویدادهای کسب‌وکار (برای آنالیتیکس: خرید/تمدید اشتراک،
+        # هدیه روزانه، رفرال موفق، روشن/خاموش کردن قابلیت‌ها و ...)
+        """
+        CREATE TABLE IF NOT EXISTS amel_events (
+            id SERIAL PRIMARY KEY,
+            owner_id INTEGER,
+            event_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        # ایندکس برای کوئری‌های آنالیتیکس (فیلتر بر اساس نوع رویداد + بازه‌ی زمانی)
+        """
+        CREATE INDEX IF NOT EXISTS idx_amel_events_type_time
+            ON amel_events (event_type, created_at)
         """
     ]
     
@@ -494,6 +510,11 @@ def toggle_setting(owner_id: int, key: str) -> bool:
     current = get_setting(owner_id, key, "0")
     new_val = "0" if current == "1" else "1"
     set_setting(owner_id, key, new_val)
+    try:
+        import analytics
+        analytics.track_event(owner_id, "feature_toggled", {"key": key, "value": new_val})
+    except Exception:
+        pass
     return new_val == "1"
 
 def get_all_logged_in_users() -> List[int]:
@@ -609,6 +630,11 @@ def claim_daily_token(owner_id: int):
             "UPDATE amel_tokens SET balance = balance + %s, total_earned = total_earned + %s, last_daily_ts = %s WHERE owner_id = %s",
             (DAILY_AMOUNT, DAILY_AMOUNT, now_ts, owner_id)
         )
+        try:
+            import analytics
+            analytics.track_event(owner_id, "daily_gift_claimed", {"amount": DAILY_AMOUNT})
+        except Exception:
+            pass
         return True, f"🎁 <b>{DAILY_AMOUNT} الماس</b> دریافت کردید!\n💎 فردا دوباره بیا!"
     except Exception as e:
         print(f"❌ claim_daily_token error: {e}")
@@ -645,6 +671,11 @@ def process_referral(referrer_owner_id: int, referred_tg_id: int) -> bool:
         query = "INSERT INTO amel_referrals (referrer_owner_id, referred_tg_id, created_at) VALUES (%s, %s, %s)"
         execute_query(query, (referrer_owner_id, referred_tg_id, datetime.datetime.now().isoformat()))
         add_tokens(referrer_owner_id, REFERRAL_TOKENS)
+        try:
+            import analytics
+            analytics.track_event(referrer_owner_id, "referral_success", {"referred_tg_id": referred_tg_id})
+        except Exception:
+            pass
         return True
     except Exception as e:
         print(f"❌ process_referral error: {e}")
@@ -1216,6 +1247,16 @@ def set_subscription(owner_id: int, plan: str, days: int):
             (owner_id, plan, expires, plan, expires)
         )
         rc.invalidate_subscribe(owner_id)  # کش اشتراک رو پاک کن
+
+        # ثبت رویداد آنالیتیکس — همه‌ی مسیرهای فعال‌سازی/تمدید اشتراک
+        # (خرید با الماس، کارت‌به‌کارت، استارز، هدیه، قرعه‌کشی) از همین
+        # تابع رد می‌شن، پس یک نقطه‌ی ثبت کافیه.
+        try:
+            import analytics
+            analytics.track_event(owner_id, "subscription_activated", {"plan": plan, "days": days})
+        except Exception:
+            pass
+
         return expires
     except Exception as e:
         print(f"❌ set_subscription error: {e}")

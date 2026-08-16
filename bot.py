@@ -656,16 +656,19 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     pass
 
             # اگه پیام رسانه داره (عکس/ویدیو/گیف/استیکر و ...) و «ذخیره پیام
-            # حذف‌شده» روشنه، خودِ رسانه رو هم دانلود می‌کنیم تا اگه پیام حذف
-            # شد، بشه عینِ همون رسانه رو هم برای خودت فرستاد، نه فقط یه متنِ
-            # خالی. این قابلیت فقط تویِ پیوی معنا داره (طبق درخواست)، پس
-            # برای گروه/سوپرگروه/کانال اصلاً دانلود نمی‌کنیم.
+            # حذف‌شده» روشنه، به‌جای دانلود کاملِ رسانه روی سرورِ خودمون
+            # (که هم پهنای‌باند سرور رو مصرف می‌کنه هم دیسک رو پر می‌کنه)،
+            # همین الان پیام رو مستقیم توی خودِ سرورهای تلگرام به Saved
+            # Messages فوروارد می‌کنیم — بایت‌های رسانه اصلاً از سرور ما رد
+            # نمی‌شن. اگه بعداً پیامِ اصلی حذف شد، دیگه لازم نیست دوباره
+            # رسانه رو بفرستیم؛ همینکه از قبل توی Saved Messages هست کافیه،
+            # فقط یک پیامِ متنیِ اطلاع‌رسانی می‌فرستیم (توی on_deleted).
+            # این قابلیت فقط تویِ پیوی معنا داره (طبق درخواست)، پس برای
+            # گروه/سوپرگروه/کانال اصلاً کاری نمی‌کنیم.
             if msg.media and event.is_private and db.get_setting(owner_id, "guard_delete_active") == "1":
                 try:
-                    guard_dir = f"saved_media/_guard/{owner_id}"
-                    os.makedirs(guard_dir, exist_ok=True)
-                    media_path = await cl.download_media(msg, file=guard_dir + "/")
-                    _msg_media_cache[cache_key] = media_path
+                    await cl.forward_messages("me", msg)
+                    _msg_media_cache[cache_key] = True  # یعنی رسانه از قبل به Saved Messages فوروارد شده
                 except Exception:
                     _msg_media_cache[cache_key] = None
             else:
@@ -675,12 +678,7 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                 for k in list(_msg_cache.keys())[:200]:
                     _msg_cache.pop(k, None)
                     _msg_sender_cache.pop(k, None)
-                    old_media = _msg_media_cache.pop(k, None)
-                    if old_media:
-                        try:
-                            os.remove(old_media)
-                        except Exception:
-                            pass
+                    _msg_media_cache.pop(k, None)
 
         # ✅ سکوت: اگه فرستنده توی لیست سکوت باشه و پیوی باشه، پیام دوطرفه پاک می‌شه
         if event.is_private and sender_id and _is_silence_user(owner_id, sender_id):
@@ -758,9 +756,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             
             if db.get_setting(owner_id, "auto_save_media") == "1" and msg.media:
                 try:
-                    media_dir = f"saved_media/{owner_id}"
-                    os.makedirs(media_dir, exist_ok=True)
-                    await cl.download_media(msg, file=media_dir + "/")
+                    # فوروارد به‌جای دانلود: صفر مصرفِ پهنای‌باند روی سرور ما،
+                    # و دیگه فایلی هم روی دیسک انباشته نمی‌شه.
+                    await cl.forward_messages("me", msg)
                 except Exception:
                     pass
             return
@@ -771,9 +769,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
         # ذخیره خودکار مدیا
         if db.get_setting(owner_id, "auto_save_media") == "1" and msg.media:
             try:
-                media_dir = f"saved_media/{owner_id}"
-                os.makedirs(media_dir, exist_ok=True)
-                await cl.download_media(msg, file=media_dir + "/")
+                # فوروارد به‌جای دانلود: صفر مصرفِ پهنای‌باند روی سرور ما،
+                # و دیگه فایلی هم روی دیسک انباشته نمی‌شه.
+                await cl.forward_messages("me", msg)
             except Exception:
                 pass
 
@@ -783,12 +781,30 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             if ttl:
                 try:
                     me = await cl.get_me()
-                    media_dir = f"saved_media/{owner_id}"
-                    os.makedirs(media_dir, exist_ok=True)
-                    path = await cl.download_media(msg, file=media_dir + "/")
-                    if path:
-                        await cl.send_file(me.id, path,
-                            caption=f"📥 مدیای تایمدار ذخیره شد\n👤 از: {getattr(sender, 'first_name', sender_id)} ({sender_id})")
+                    # ✅ اول امتحان می‌کنیم مستقیم فوروارد کنیم (صفر مصرفِ
+                    # پهنای‌باند روی سرور ما، چون بایت‌ها فقط بینِ خودِ
+                    # سرورهای تلگرام جابه‌جا می‌شن). تلگرام معمولاً فوروارد
+                    # مدیای تایم‌دار/یک‌بار-نمایش رو مسدود می‌کنه (برای حفظ
+                    # حریمِ خصوصیِ فرستنده)؛ اگه فوروارد رد شد، به روشِ قبلی
+                    # (دانلود کامل + آپلودِ دوباره) برمی‌گردیم تا قابلیت
+                    # سرِ جاش بمونه.
+                    try:
+                        await cl.forward_messages(me.id, msg)
+                    except Exception:
+                        media_dir = f"saved_media/{owner_id}"
+                        os.makedirs(media_dir, exist_ok=True)
+                        path = await cl.download_media(msg, file=media_dir + "/")
+                        if path:
+                            try:
+                                await cl.send_file(me.id, path,
+                                    caption=f"📥 مدیای تایمدار ذخیره شد\n👤 از: {getattr(sender, 'first_name', sender_id)} ({sender_id})")
+                            finally:
+                                # فایلِ موقتِ محلی رو بعد از آپلود پاک می‌کنیم
+                                # (قبلاً هیچ‌وقت پاک نمی‌شد و دیسک پر می‌شد)
+                                try:
+                                    os.remove(path)
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
 
@@ -1157,28 +1173,23 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     continue
                 cached = _msg_cache.pop(key, None) or ""
                 who = _msg_sender_cache.pop(key, None) or "نامشخص"
-                media_path = _msg_media_cache.pop(key, None)
+                already_forwarded = _msg_media_cache.pop(key, None)
                 try:
                     from telethon.tl.types import MessageEntityBlockquote
                     header = f"پیام حذف شده\nاز طرف: {who}\n"
                     body = cached if cached else "(بدون متن — فقط رسانه)"
                     header += "پیام قبلی\n"
                     full = header + body
+                    if already_forwarded:
+                        # رسانه‌ی این پیام موقعِ دریافت، مستقیم به Saved
+                        # Messages فوروارد شده بود — نیازی به فرستادنِ
+                        # دوباره‌ش نیست، فقط یادآوریِ متنی کافیه.
+                        full += "\n\n📎 رسانه‌ی این پیام قبلاً به Saved Messages فوروارد شده بود."
                     entity_start = _u16len(header)
-                    if media_path and os.path.exists(media_path):
-                        await cl.send_file(
-                            "me", media_path, caption=full,
-                            formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
-                        )
-                        try:
-                            os.remove(media_path)
-                        except Exception:
-                            pass
-                    else:
-                        await cl.send_message(
-                            "me", full,
-                            formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
-                        )
+                    await cl.send_message(
+                        "me", full,
+                        formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
+                    )
                 except Exception:
                     pass
         except Exception:
