@@ -273,12 +273,32 @@ class AdvancedBotManager:
         if self._main_loop is None:
             self._main_loop = loop
 
-        # ─── ۱. Duplicate Protection ─────────────────────────────────────
+        # ─── ۱. Duplicate Protection (محلی - همین پروسه) ──────────────────
         if self.is_running(owner_id):
             logger.warning("[%s] اکانت در حال اجراست، متوقف می‌شود...", owner_id)
             self.stop(owner_id)
             # صبر غیربلاک‌کننده در thread جداگانه
             time.sleep(0.3)
+
+        # ─── ۱.۵ Duplicate Protection (بین‌هاستی - Redis heartbeat) ───────
+        # حتی اگر این پروسه هیچ entry محلی برای owner_id نداشته باشه، ممکنه
+        # یک هاست/پروسه‌ی دیگه همین اکانت رو الان روشن نگه داشته باشه
+        # (heartbeat در Redis زنده است). اگه بدون این چک دوباره همون
+        # StringSession رو وصل کنیم، دو کانکشن هم‌زمان با یک auth_key باعث
+        # خطای MTProto «wrong session ID» می‌شه. پس اینجا استارت رو لغو
+        # می‌کنیم به‌جای اینکه یک کانکشن تداخلی بسازیم.
+        with self._lock:
+            has_local_entry = owner_id in self._bots
+        if not has_local_entry:
+            hb = self._get_hb_manager()
+            if hb.is_alive(owner_id):
+                logger.warning(
+                    "[%s] این اکانت روی یک هاست/پروسه‌ی دیگه در حال اجراست "
+                    "(heartbeat زنده است) — برای جلوگیری از تداخل سشن "
+                    "(wrong session ID) استارت لغو شد.",
+                    owner_id,
+                )
+                return False
 
         # ─── ۲. بررسی اشتراک ─────────────────────────────────────────────
         try:

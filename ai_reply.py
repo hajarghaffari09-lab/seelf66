@@ -15,7 +15,7 @@ import database as db
 
 # ─── ثابت‌ها ─────────────────────────────────────────────────────────────────
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_MODEL   = "openai/gpt-oss-120b"  # llama-3.3-70b-versatile در ۱۷ ژوئن ۲۰۲۶ توسط Groq از رده خارج شد
 
 # کلید تنظیمات دیتابیس
 SETTING_AI_ENABLED  = "ai_autoreply"       # 0 یا 1

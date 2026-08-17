@@ -179,7 +179,8 @@ def get_support_ai_answer(question: str) -> str:
         )
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        # llama-3.3-70b-versatile در ۱۷ ژوئن ۲۰۲۶ توسط Groq از رده خارج شد
+        "model": "openai/gpt-oss-120b",
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question[:800]},
