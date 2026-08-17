@@ -25,12 +25,11 @@ def _u16len(s: str) -> int:
 
 from telethon.sessions import StringSession
 from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.messages import GetCommonChatsRequest, ReadMentionsRequest
+from telethon.tl.functions.messages import GetCommonChatsRequest
 from telethon.errors import FloodWaitError
 import requests
 import database as db
 import config
-import support_ai
 from texts import ENEMY_REPLIES, FRIEND_REPLIES
 import meowie_game
 
@@ -93,14 +92,14 @@ _last_friend_reply = {}     # {sender_id: timestamp}
 SECRETARY_COOLDOWN = 86400  # 24 ساعت
 FRIEND_COOLDOWN = 3600      # 1 ساعت
 
-# ─── دستیار هوش مصنوعی (Groq) ──────────────────────────────────────────────
+# ─── دستیار هوش مصنوعی (دیپ‌سیک) ──────────────────────────────────────────────
 _last_ai_reply = {}  # {chat_id: timestamp} — کول‌داون پاسخ هوش مصنوعی
 _last_outgoing_activity = {}  # {owner_id: timestamp} — آخرین باری که خودِ کاربر پیام فرستاده
 AI_AWAY_SECONDS = 300  # اگه ۵ دقیقه از آخرین پیامِ خودِ کاربر گذشته باشه، "غایب" در نظر گرفته می‌شه
 AI_REPLY_COOLDOWN = 60  # حداقل فاصله بین دو پاسخ هوش مصنوعی در یک چت
 
 # حداکثر تعداد پیامی که هر کاربر (فرستنده) در روز می‌تونه از دستیارِ
-# هوش مصنوعیِ آموزش‌دیده (همون «Groq»/ai_assistant) جواب بگیره.
+# هوش مصنوعیِ آموزش‌دیده (همون «دیپ سیک»/ai_assistant) جواب بگیره.
 AI_ASSISTANT_DAILY_LIMIT = 10
 _AI_ASSISTANT_DAILY_PREFIX = "ai_assistant_daily_count"
 
@@ -423,7 +422,6 @@ class BotManager:
                 print(f"✅ [{owner_id}] بات راه‌اندازی شد — {me.first_name} (@{me.username})")
 
                 db.save_telegram_user_id(owner_id, me.id)
-                entry["tg_id"] = me.id  # ← برای تشخیصِ «آیا این اکانتِ پشتیبانیه؟» تو on_incoming
                 _last_outgoing_activity[owner_id] = time.time()
 
                 # ✅ تشخیص مالک - اصلاح شده با ۳ روش
@@ -480,25 +478,9 @@ class BotManager:
                 print(f"❌ [{owner_id}] خطا: {e}")
 
                 # ✅ اگه session توسط تلگرام باطل شده، نیاز به لاگین مجدد
-                # AuthKeyDuplicatedError یعنی همین سشن هم‌زمان از دو IP
-                # متفاوت استفاده شده (مثلاً دو نمونه از ربات با یک سشن) —
-                # تلگرام خودش کلید رو باطل می‌کنه. قبلاً این تشخیص داده
-                # نمی‌شد، پس کد به‌جای لاگین‌مجدد بی‌نهایت retry می‌کرد؛ چون
-                # سشن واقعاً باطله، cl.start() هر بار می‌رفت سراغِ پرامپتِ
-                # تعاملیِ «شماره تلفن»، تو محیطِ headless با EOF کرش می‌کرد،
-                # واچ‌داگ دوباره ری‌استارت می‌کرد — یه حلقه‌ی بی‌پایانِ کرش.
-                #
-                # پیامِ str(e) این خطا شاملِ نامِ کلاس نیست (فقط متنِ توضیح)،
-                # پس هم روی نوعِ خودِ Exception چک می‌کنیم هم روی چندتا
-                # کلیدواژه‌ی متنیِ رایج، تا مطمئن باشیم قاطی نمی‌شه.
-                is_auth_key_duplicated = type(e).__name__ == "AuthKeyDuplicatedError"
-                if any(k in err_str for k in (
-                    "AUTH_KEY_UNREGISTERED", "SESSION_REVOKED",
-                    "USER_DEACTIVATED", "UnauthorizedError",
-                    "AuthKeyDuplicatedError", "AUTH_KEY_DUPLICATED",
-                    "used under two different IP addresses",
-                )) or is_auth_key_duplicated:
-                    print(f"❌ [{owner_id}] Session باطل شده — نیاز به لاگین مجدد ({err_str[:120]})")
+                if any(k in err_str for k in ("AUTH_KEY_UNREGISTERED", "SESSION_REVOKED",
+                                               "USER_DEACTIVATED", "UnauthorizedError")):
+                    print(f"❌ [{owner_id}] Session باطل شده — نیاز به لاگین مجدد")
                     db.set_setting(owner_id, "logged_in", "0")
                     db.set_setting(owner_id, "session_data", "")
                     break
@@ -607,26 +589,6 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
         text = msg.text or ""
         is_bot_sender = bool(getattr(sender, "bot", False))
 
-        # 🐱 سین خودکار در گروهِ بازیِ میویی — مستقل از تنظیمِ عمومیِ «سین
-        # خودکار» (auto_seen_active)، چون هدف اینه که نوتیفِ پیام‌های ربات
-        # بازی توی همون گروه نیاد، حتی اگه سینِ خودکارِ عمومی خاموش باشه.
-        # ⚠️ send_read_acknowledge فقط وضعیتِ «خونده‌شده»ی عادی رو پاک می‌کنه؛
-        # تلگرام یه بجِ جدا برای «تگ‌شدن» (منشن) نگه می‌داره که با همون پاک
-        # نمی‌شه و باید جدا با ReadMentionsRequest صاف بشه — وگرنه هر تگی که
-        # تو گروهِ میویی می‌زنن (مثلاً خودِ ربات بازی)، هنوز به چشم میاد.
-        try:
-            if (
-                db.get_setting(owner_id, "meowie_game_active", "0") == "1"
-                and str(event.chat_id) == db.get_setting(owner_id, "meowie_game_group_id", "")
-            ):
-                await cl.send_read_acknowledge(event.chat_id, msg)
-                try:
-                    await cl(ReadMentionsRequest(await cl.get_input_entity(event.chat_id)))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
         # شمارشِ پیامِ امروزِ این کاربر (برایِ کارتِ «ایدی») - همه‌یِ پیام‌هایِ
         # ورودی (چه از owner چه از بقیه) رو می‌شمریم، چون ممکنه بخوایم بعداً
         # آمارِ خودِ owner رو هم نشون بدیم
@@ -656,19 +618,16 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     pass
 
             # اگه پیام رسانه داره (عکس/ویدیو/گیف/استیکر و ...) و «ذخیره پیام
-            # حذف‌شده» روشنه، به‌جای دانلود کاملِ رسانه روی سرورِ خودمون
-            # (که هم پهنای‌باند سرور رو مصرف می‌کنه هم دیسک رو پر می‌کنه)،
-            # همین الان پیام رو مستقیم توی خودِ سرورهای تلگرام به Saved
-            # Messages فوروارد می‌کنیم — بایت‌های رسانه اصلاً از سرور ما رد
-            # نمی‌شن. اگه بعداً پیامِ اصلی حذف شد، دیگه لازم نیست دوباره
-            # رسانه رو بفرستیم؛ همینکه از قبل توی Saved Messages هست کافیه،
-            # فقط یک پیامِ متنیِ اطلاع‌رسانی می‌فرستیم (توی on_deleted).
-            # این قابلیت فقط تویِ پیوی معنا داره (طبق درخواست)، پس برای
-            # گروه/سوپرگروه/کانال اصلاً کاری نمی‌کنیم.
+            # حذف‌شده» روشنه، خودِ رسانه رو هم دانلود می‌کنیم تا اگه پیام حذف
+            # شد، بشه عینِ همون رسانه رو هم برای خودت فرستاد، نه فقط یه متنِ
+            # خالی. این قابلیت فقط تویِ پیوی معنا داره (طبق درخواست)، پس
+            # برای گروه/سوپرگروه/کانال اصلاً دانلود نمی‌کنیم.
             if msg.media and event.is_private and db.get_setting(owner_id, "guard_delete_active") == "1":
                 try:
-                    await cl.forward_messages("me", msg)
-                    _msg_media_cache[cache_key] = True  # یعنی رسانه از قبل به Saved Messages فوروارد شده
+                    guard_dir = f"saved_media/_guard/{owner_id}"
+                    os.makedirs(guard_dir, exist_ok=True)
+                    media_path = await cl.download_media(msg, file=guard_dir + "/")
+                    _msg_media_cache[cache_key] = media_path
                 except Exception:
                     _msg_media_cache[cache_key] = None
             else:
@@ -678,7 +637,12 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                 for k in list(_msg_cache.keys())[:200]:
                     _msg_cache.pop(k, None)
                     _msg_sender_cache.pop(k, None)
-                    _msg_media_cache.pop(k, None)
+                    old_media = _msg_media_cache.pop(k, None)
+                    if old_media:
+                        try:
+                            os.remove(old_media)
+                        except Exception:
+                            pass
 
         # ✅ سکوت: اگه فرستنده توی لیست سکوت باشه و پیوی باشه، پیام دوطرفه پاک می‌شه
         if event.is_private and sender_id and _is_silence_user(owner_id, sender_id):
@@ -756,9 +720,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             
             if db.get_setting(owner_id, "auto_save_media") == "1" and msg.media:
                 try:
-                    # فوروارد به‌جای دانلود: صفر مصرفِ پهنای‌باند روی سرور ما،
-                    # و دیگه فایلی هم روی دیسک انباشته نمی‌شه.
-                    await cl.forward_messages("me", msg)
+                    media_dir = f"saved_media/{owner_id}"
+                    os.makedirs(media_dir, exist_ok=True)
+                    await cl.download_media(msg, file=media_dir + "/")
                 except Exception:
                     pass
             return
@@ -769,9 +733,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
         # ذخیره خودکار مدیا
         if db.get_setting(owner_id, "auto_save_media") == "1" and msg.media:
             try:
-                # فوروارد به‌جای دانلود: صفر مصرفِ پهنای‌باند روی سرور ما،
-                # و دیگه فایلی هم روی دیسک انباشته نمی‌شه.
-                await cl.forward_messages("me", msg)
+                media_dir = f"saved_media/{owner_id}"
+                os.makedirs(media_dir, exist_ok=True)
+                await cl.download_media(msg, file=media_dir + "/")
             except Exception:
                 pass
 
@@ -781,30 +745,12 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             if ttl:
                 try:
                     me = await cl.get_me()
-                    # ✅ اول امتحان می‌کنیم مستقیم فوروارد کنیم (صفر مصرفِ
-                    # پهنای‌باند روی سرور ما، چون بایت‌ها فقط بینِ خودِ
-                    # سرورهای تلگرام جابه‌جا می‌شن). تلگرام معمولاً فوروارد
-                    # مدیای تایم‌دار/یک‌بار-نمایش رو مسدود می‌کنه (برای حفظ
-                    # حریمِ خصوصیِ فرستنده)؛ اگه فوروارد رد شد، به روشِ قبلی
-                    # (دانلود کامل + آپلودِ دوباره) برمی‌گردیم تا قابلیت
-                    # سرِ جاش بمونه.
-                    try:
-                        await cl.forward_messages(me.id, msg)
-                    except Exception:
-                        media_dir = f"saved_media/{owner_id}"
-                        os.makedirs(media_dir, exist_ok=True)
-                        path = await cl.download_media(msg, file=media_dir + "/")
-                        if path:
-                            try:
-                                await cl.send_file(me.id, path,
-                                    caption=f"📥 مدیای تایمدار ذخیره شد\n👤 از: {getattr(sender, 'first_name', sender_id)} ({sender_id})")
-                            finally:
-                                # فایلِ موقتِ محلی رو بعد از آپلود پاک می‌کنیم
-                                # (قبلاً هیچ‌وقت پاک نمی‌شد و دیسک پر می‌شد)
-                                try:
-                                    os.remove(path)
-                                except Exception:
-                                    pass
+                    media_dir = f"saved_media/{owner_id}"
+                    os.makedirs(media_dir, exist_ok=True)
+                    path = await cl.download_media(msg, file=media_dir + "/")
+                    if path:
+                        await cl.send_file(me.id, path,
+                            caption=f"📥 مدیای تایمدار ذخیره شد\n👤 از: {getattr(sender, 'first_name', sender_id)} ({sender_id})")
                 except Exception:
                     pass
 
@@ -902,7 +848,7 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     pass
             return
 
-        # ✅ دستیار هوش مصنوعی (Groq) — یا فقط وقتی غایب باشی، یا به همه پیام‌ها
+        # ✅ دستیار هوش مصنوعی (دیپ‌سیک) — یا فقط وقتی غایب باشی، یا به همه پیام‌ها
         if (
             db.get_setting(owner_id, "ai_assistant_active") == "1"
             and event.is_private
@@ -930,19 +876,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                             except Exception:
                                 pass
                     else:
-                        is_support_account = entry.get("tg_id") in getattr(config, "OWNER_IDS", [])
+                        knowledge = db.get_setting(owner_id, "ai_knowledge_base", "")
                         try:
-                            if is_support_account:
-                                # ✅ اکانتِ پشتیبانی — از همون منشیِ راهنمای مستنداتِ
-                                # پروژه (GUIDE.md) جواب بده، نه دانشِ اختصاصیِ خودش.
-                                # این تابع sync هست (urllib هم‌زمان)، پس تو یه
-                                # executor اجرا می‌شه تا حلقه‌ی asyncio بلاک نشه.
-                                answer = await asyncio.get_event_loop().run_in_executor(
-                                    None, support_ai.get_support_ai_answer, text
-                                )
-                            else:
-                                knowledge = db.get_setting(owner_id, "ai_knowledge_base", "")
-                                answer = await _ask_deepseek(knowledge, text)
+                            answer = await _ask_deepseek(knowledge, text)
                             if answer:
                                 await event.reply(answer)
                                 _last_ai_reply[chat_id] = now
@@ -951,7 +887,7 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                             print(f"خطا در پاسخ هوش مصنوعی: {e}")
 
 
-        # ✅ ری اکشن خودکار — با بات‌ها کاری نداشته باش
+        # ✅ ری‌اکشن خودکار — با بات‌ها کاری نداشته باش
         if not is_bot_sender and db.get_setting(owner_id, "auto_reaction_active") == "1":
             emoji = db.get_setting(owner_id, "auto_reaction_emoji", "❤️")
             try:
@@ -965,9 +901,9 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     add_to_recent=True
                 ))
             except Exception as e:
-                print(f"⚠️ خطا در ری اکشن: {e}")
+                print(f"⚠️ خطا در ری‌اکشن: {e}")
 
-        # ✅ ری اکشن اختصاصی برای یک کاربر خاص — با بات‌ها کاری نداشته باش
+        # ✅ ری‌اکشن اختصاصی برای یک کاربر خاص — با بات‌ها کاری نداشته باش
         react_map = _get_react_map(owner_id)
         if not is_bot_sender and str(sender_id) in react_map:
             try:
@@ -1173,23 +1109,28 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
                     continue
                 cached = _msg_cache.pop(key, None) or ""
                 who = _msg_sender_cache.pop(key, None) or "نامشخص"
-                already_forwarded = _msg_media_cache.pop(key, None)
+                media_path = _msg_media_cache.pop(key, None)
                 try:
                     from telethon.tl.types import MessageEntityBlockquote
                     header = f"پیام حذف شده\nاز طرف: {who}\n"
                     body = cached if cached else "(بدون متن — فقط رسانه)"
                     header += "پیام قبلی\n"
                     full = header + body
-                    if already_forwarded:
-                        # رسانه‌ی این پیام موقعِ دریافت، مستقیم به Saved
-                        # Messages فوروارد شده بود — نیازی به فرستادنِ
-                        # دوباره‌ش نیست، فقط یادآوریِ متنی کافیه.
-                        full += "\n\n📎 رسانه‌ی این پیام قبلاً به Saved Messages فوروارد شده بود."
                     entity_start = _u16len(header)
-                    await cl.send_message(
-                        "me", full,
-                        formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
-                    )
+                    if media_path and os.path.exists(media_path):
+                        await cl.send_file(
+                            "me", media_path, caption=full,
+                            formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
+                        )
+                        try:
+                            os.remove(media_path)
+                        except Exception:
+                            pass
+                    else:
+                        await cl.send_message(
+                            "me", full,
+                            formatting_entities=[MessageEntityBlockquote(entity_start, _u16len(body), collapsed=False)]
+                        )
                 except Exception:
                     pass
         except Exception:
@@ -1201,12 +1142,6 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
         had_dot = raw.startswith(".") and len(raw) > 1
         # قبول کردن پیشوند نقطه («.دستور» هم مثل «دستور» کار کند)
         text = raw[1:].strip() if had_dot else raw
-
-        # یکسان‌سازی نگارش‌های مختلفِ دستور ری اکشن/ری اکت — کاربر ممکنه
-        # بدون فاصله («ریاکشن») یا با نیم‌فاصله («ری‌اکشن») بنویسه؛ همه
-        # باید به شکلِ استاندارد «ری اکشن» / «ری اکت» (با فاصله‌ی معمولی) برسن.
-        text = re.sub(r"ری[ \u200c]?اکشن", "ری اکشن", text)
-        text = re.sub(r"ری[ \u200c]?اکت", "ری اکت", text)
 
         # ثبت آخرین فعالیتِ خودِ کاربر — برای تشخیص «غایب/آفلاین» دستیار هوش مصنوعی
         _last_outgoing_activity[owner_id] = time.time()
@@ -1236,7 +1171,7 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             "ضد لینک روشن", "ضد لینک خاموش",
             "قفل پیوی روشن", "قفل پیوی خاموش",
             "سین خودکار روشن", "سین خودکار خاموش",
-            "ری اکشن روشن", "ری اکشن خاموش",
+            "ری‌اکشن روشن", "ری‌اکشن خاموش",
             "ذخیره مدیا روشن", "ذخیره مدیا خاموش",
             "ساعت نام روشن", "ساعت نام خاموش",
             "ساعت بیو روشن", "ساعت بیو خاموش",
@@ -1256,7 +1191,6 @@ def _register_handlers(cl: TelegramClient, owner_id: int, entry: dict):
             "پیام جوین ", "پاک کردن کانال‌های اجباری", "لیست کانال‌های اجباری",
             "پنل", "panel",
             "اکشن",
-            "نکسو روشن", "نکسو خاموش",
         ]
 
         is_config_command = any(text.startswith(cmd) or text == cmd for cmd in config_commands)
@@ -1688,7 +1622,7 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
         except Exception:
             await edit("❗ عبارت ریاضی نامعتبر است.\nفرمت درست: `محاسبه 2+2*3`")
 
-    # ─── دستیار هوش مصنوعی (Groq) ───────────────────────────────────────
+    # ─── دستیار هوش مصنوعی (دیپ‌سیک) ───────────────────────────────────────
     # ─── اکشن (نمایش تایپ/آپلود عکس/ضبط ویس و... به کسی که پیام می‌ده) ─────────
     # پورت‌شده از selfsazV5 - رفتار و زیردستورها عیناً همون، فقط تنظیمات
     # به‌ازای owner_id ذخیره می‌شه (چندکاربره) و ارسال با client.action
@@ -1884,8 +1818,11 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
     # ─── اسکرین (ساخت استیکر از یک پیام، همراه با پروفایلِ فرستنده) ────────────
     elif text == "اسکرین" or text.startswith("اسکرین "):
         if not had_dot:
-            # بدون نقطه، اصلاً به‌عنوان دستور در نظر گرفته نشه — انگار یه
-            # پیام معمولیه، هیچ پاسخ/ادیتی هم انجام نشه.
+            await edit(
+                "❗ دستور اسکرین باید با نقطه شروع بشه.\n"
+                "مثال: .اسکرین https://t.me/channel/123\n"
+                "یا (روی یه پیام ریپلای بزن و بنویس): .اسکرین"
+            )
             return
         link_part = text[len("اسکرین"):].strip()
         try:
@@ -2268,26 +2205,25 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
         ss("guard_view_once_active", "0")
         await edit("ذخیره عکس تایمی خاموش شد.")
 
-    elif text == "نکسو روشن":
-        # ✅ یه دستورِ واحد — قبلاً باید هم «Groq روشن» و هم «هوش مصنوعی
-        # پاسخ همه روشن» رو جدا جدا می‌فرستادی؛ اگه یکیشون یادت می‌رفت
-        # (مثلاً فقط اولی)، ai_reply_always_active خاموش می‌موند و دستیار
-        # فقط بعد از ۵ دقیقه غیبت جواب می‌داد — دقیقاً همون چیزی که موقعِ
-        # تست به نظر می‌رسید «کار نمی‌کنه»، چون تا ۵ دقیقه هیچ جوابی نمیومد.
+    elif text == "دیپ سیک روشن":
         if not getattr(config, "GROQ_API_KEY", ""):
             await edit("کلید API هوش مصنوعی (Groq) تنظیم نشده است.")
         else:
             ss("ai_assistant_active", "1")
-            ss("ai_reply_always_active", "1")
             await edit(
-                "🧠 نکسو روشن شد.\n"
-                "از این به بعد به همه‌ی پیام‌های پیوی (نه فقط وقتی غایبی) با Groq جواب می‌ده."
+                "دستیار هوش مصنوعی روشن شد.\n"
+                f"وقتی {AI_AWAY_SECONDS // 60} دقیقه پیامی نفرستی، به‌جای تو به پیام‌های پیوی جواب می‌ده."
             )
-    elif text == "نکسو خاموش":
+    elif text == "دیپ سیک خاموش":
         ss("ai_assistant_active", "0")
-        ss("ai_reply_always_active", "0")
-        await edit("🧠 نکسو خاموش شد.")
+        await edit("دستیار هوش مصنوعی خاموش شد.")
 
+    elif text == "هوش مصنوعی پاسخ همه روشن":
+        ss("ai_reply_always_active", "1")
+        await edit("از این به بعد هوش مصنوعی به همه پیام‌های پیوی جواب می‌ده (نه فقط وقتی غایبی)، با همون اطلاعاتی که آموزش داده‌ای.")
+    elif text == "هوش مصنوعی پاسخ همه خاموش":
+        ss("ai_reply_always_active", "0")
+        await edit("هوش مصنوعی دوباره فقط وقتی غایب باشی جواب می‌ده.")
 
     elif text.startswith("آموزش هوش مصنوعی "):
         info = text[len("آموزش هوش مصنوعی "):].strip()
@@ -2392,19 +2328,19 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
         _save_block_list(owner_id, [])
         await edit("لیست بلاک پاکسازی شد و همه آنبلاک شدند.")
 
-    # ─── ری اکت اختصاصی برای یک کاربر خاص ───────────────────────────────────
-    elif text.startswith("تنظیم ری اکت "):
-        emoji = text[len("تنظیم ری اکت "):].strip()
+    # ─── ری‌اکت اختصاصی برای یک کاربر خاص ───────────────────────────────────
+    elif text.startswith("تنظیم ری‌اکت "):
+        emoji = text[len("تنظیم ری‌اکت "):].strip()
         target = await _resolve_target(event, text.split())
         if not emoji or not target:
-            await edit("فرمت: روی پیام کاربر ریپلای کن و بنویس «تنظیم ری اکت [ایموجی]»")
+            await edit("فرمت: روی پیام کاربر ریپلای کن و بنویس «تنظیم ری‌اکت [ایموجی]»")
         else:
             mapping = _get_react_map(owner_id)
             mapping[str(target["id"])] = emoji
             _save_react_map(owner_id, mapping)
-            await edit(f"از این به بعد پیام‌های {target.get('name') or target['id']} با {emoji} ری اکت می‌شود.")
+            await edit(f"از این به بعد پیام‌های {target.get('name') or target['id']} با {emoji} ری‌اکت می‌شود.")
 
-    elif text == "حذف ری اکت":
+    elif text == "حذف ری‌اکت":
         target = await _resolve_target(event, text.split())
         if not target:
             await edit("روی پیام کاربر ریپلای کن.")
@@ -2412,7 +2348,7 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
             mapping = _get_react_map(owner_id)
             mapping.pop(str(target["id"]), None)
             _save_react_map(owner_id, mapping)
-            await edit("ری اکت اختصاصی این کاربر حذف شد.")
+            await edit("ری‌اکت اختصاصی این کاربر حذف شد.")
 
     # ─── ترک همگانی گروه/کانال ──────────────────────────────────────────────
     elif text == "ترک همگانی گروه":
@@ -2602,14 +2538,14 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
     elif text == "سین خودکار خاموش":
         ss("auto_seen_active", "0"); await edit("👁️ سین خودکار خاموش شد.")
 
-    # ─── ری اکشن ─────────────────────────────────────────────────────────────
-    elif text == "ری اکشن روشن":
-        ss("auto_reaction_active", "1"); await edit("❤️ ری اکشن خودکار روشن شد.")
-    elif text == "ری اکشن خاموش":
-        ss("auto_reaction_active", "0"); await edit("❤️ ری اکشن خودکار خاموش شد.")
-    elif text.startswith("ری اکشن "):
-        emoji = text[len("ری اکشن "):].strip()
-        ss("auto_reaction_emoji", emoji); await edit(f"✅ ری اکشن پیش‌فرض: {emoji}")
+    # ─── ری‌اکشن ─────────────────────────────────────────────────────────────
+    elif text == "ری‌اکشن روشن":
+        ss("auto_reaction_active", "1"); await edit("❤️ ری‌اکشن خودکار روشن شد.")
+    elif text == "ری‌اکشن خاموش":
+        ss("auto_reaction_active", "0"); await edit("❤️ ری‌اکشن خودکار خاموش شد.")
+    elif text.startswith("ری‌اکشن "):
+        emoji = text[len("ری‌اکشن "):].strip()
+        ss("auto_reaction_emoji", emoji); await edit(f"✅ ری‌اکشن پیش‌فرض: {emoji}")
 
     # ─── ذخیره مدیا ──────────────────────────────────────────────────────────
     elif text == "ذخیره مدیا روشن":
@@ -3017,7 +2953,7 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
         status_map = {
             "self_bot_active": "سلف‌بات", "secretary_active": "منشی",
             "anti_delete_active": "ضد حذف", "anti_link_active": "ضد لینک",
-            "auto_seen_active": "سین خودکار", "auto_reaction_active": "ری اکشن",
+            "auto_seen_active": "سین خودکار", "auto_reaction_active": "ری‌اکشن",
             "private_lock_active": "قفل پیوی", "enemy_reply_active": "پاسخ دشمن",
             "auto_save_media": "ذخیره مدیا", "clock_name_active": "ساعت نام",
             "clock_bio_active": "ساعت بیو", "force_join_active": "جوین اجباری",
@@ -3054,12 +2990,24 @@ async def _handle_command(cl, event, text, owner_id, entry, had_dot=True):
     # با ریپلای روی پیامِ یک نفر = اطلاعاتِ همون کاربر
     # با نوشتنِ «ایدی [آیدی عددی یا @یوزرنیم]» = اطلاعاتِ همون کاربر، بدونِ نیاز به ریپلای
     # بدونِ ریپلای و بدونِ آرگومان = خودِ owner
-    elif text == "ایدی":
+    elif text == "ایدی" or text.startswith("ایدی "):
         try:
+            parts = text.split()
             replied = await event.get_reply_message()
 
+            target = None
             if replied:
                 target = await replied.get_sender()
+            elif len(parts) > 1:
+                arg = parts[1].lstrip("@")
+                try:
+                    lookup = int(arg) if arg.lstrip("-").isdigit() else arg
+                    target = await cl.get_entity(lookup)
+                except Exception:
+                    target = None
+                if target is None:
+                    await edit("❗ کاربری با این آیدی/یوزرنیم پیدا نشد.")
+                    return
             else:
                 target = await cl.get_me()
 
@@ -3402,7 +3350,7 @@ def _save_block_list(owner_id: int, users: list):
     db.set_setting(owner_id, _BLOCK_KEY, json.dumps(users))
 
 
-# ─── ری اکت اختصاصی: یک ایموجی ثابت که فقط برای پیام‌های یک کاربر خاص زده می‌شه ─
+# ─── ری‌اکت اختصاصی: یک ایموجی ثابت که فقط برای پیام‌های یک کاربر خاص زده می‌شه ─
 _REACT_MAP_KEY = "user_react_map"
 
 
@@ -3931,8 +3879,9 @@ def _help_text():
             "فیلترکلمات روشن / خاموش",
             "💡 پیام‌های پیویِ حاوی کلمات فیلترشده به‌صورت خودکار حذف می‌شوند",
         ]),
-        ("🔹 هوش مصنوعی (نکسو / Groq)", [
-            "نکسو روشن / خاموش",
+        ("🔹 هوش مصنوعی (دیپ‌سیک)", [
+            "دیپ سیک روشن / خاموش",
+            "هوش مصنوعی پاسخ همه روشن / خاموش",
             "آموزش هوش مصنوعی [متن]  ← افزودن دانش اختصاصی",
             "نمایش دانش هوش مصنوعی",
             "پاک کردن دانش هوش مصنوعی",
@@ -3958,11 +3907,11 @@ def _help_text():
         ("🔹 اتوماسیون", [
             "سین خودکار روشن",
             "سین خودکار خاموش",
-            "ری اکشن روشن",
-            "ری اکشن خاموش",
-            "ری اکشن [ایموجی]  ← تغییر ایموجی",
-            "تنظیم ری اکت [ایموجی]  ← ریپلای روی پیام یک کاربر خاص",
-            "حذف ری اکت  ← ریپلای",
+            "ری‌اکشن روشن",
+            "ری‌اکشن خاموش",
+            "ری‌اکشن [ایموجی]  ← تغییر ایموجی",
+            "تنظیم ری‌اکت [ایموجی]  ← ریپلای روی پیام یک کاربر خاص",
+            "حذف ری‌اکت  ← ریپلای",
             "ذخیره مدیا روشن",
             "ذخیره مدیا خاموش",
             "ذخیره عکس تایمی روشن / خاموش",
@@ -3986,7 +3935,7 @@ def _help_text():
             "تگ [متن]  ← منشن همه‌ی اعضای گروه با متن دلخواه",
             "لغو تگ",
             "حذف  ← ریپلای، پیام مقابل رو هم پاک می‌کنه",
-            "ایدی  ← تنها اگه تنها همین کلمه باشه اجرا می‌شه؛ ریپلای = کارتِ اطلاعاتِ همون کاربر، بدون ریپلای = کارتِ اطلاعاتِ خودِ سلف",
+            "ایدی [آیدی/یوزرنیم]  ← ریپلای یا آیدی عددی/یوزرنیم = کارت اطلاعات کاربر (عکس پروفایل + آیدی + یوزرنیم + تعداد عکس + پیام‌های امروز)",
             "لیست بلاک",
             "پاکسازی لیست بلاک",
         ]),
@@ -4252,7 +4201,7 @@ PANEL_CATEGORIES = {
     "user_react": {
         "title": "ریکت",
         "menu_style": "primary",
-        "direct_command": "INFO::روی پیام کاربر ریپلای کن و تایپ کن: تنظیم ری اکت [ایموجی] — برای حذف: حذف ری اکت",
+        "direct_command": "INFO::روی پیام کاربر ریپلای کن و تایپ کن: تنظیم ری‌اکت [ایموجی] — برای حذف: حذف ری‌اکت",
     },
     "spam": {
         "title": "اسپم",
@@ -4290,10 +4239,11 @@ PANEL_CATEGORIES = {
         "direct_command": "INFO::روی پیامی که می‌خوای حذف شه ریپلای کن و تایپ کن: حذف",
     },
     "ai_assistant": {
-        "title": "نکسو",
+        "title": "هوش مصنوعی",
         "menu_style": "success",
         "toggles": [
-            ("ai_assistant_active", "نکسو", "نکسو روشن", "نکسو خاموش"),
+            ("ai_assistant_active", "دیپ سیک", "دیپ سیک روشن", "دیپ سیک خاموش"),
+            ("ai_reply_always_active", "پاسخ به همه پیام‌ها", "هوش مصنوعی پاسخ همه روشن", "هوش مصنوعی پاسخ همه خاموش"),
         ],
         "actions": [
             ("افزودن اطلاعات", "INFO::برای اضافه‌کردن اطلاعات تایپ کن: آموزش هوش مصنوعی [متن] — مثال: آموزش هوش مصنوعی قیمت گوشی X ۱۰ میلیون تومان است"),
@@ -4360,12 +4310,12 @@ PANEL_CATEGORIES = {
         "menu_style": "primary",
         "toggles": [
             ("auto_seen_active", "سین خودکار", "سین خودکار روشن", "سین خودکار خاموش"),
-            ("auto_reaction_active", "ری اکشن خودکار", "ری اکشن روشن", "ری اکشن خاموش"),
+            ("auto_reaction_active", "ری‌اکشن خودکار", "ری‌اکشن روشن", "ری‌اکشن خاموش"),
             ("auto_save_media", "ذخیره مدیا", "ذخیره مدیا روشن", "ذخیره مدیا خاموش"),
         ],
         "actions": [
             ("آب و هوا", "INFO::برای استفاده تایپ کن: هوا [نام شهر]"),
-            ("تنظیم ایموجی ری اکشن", "INFO::برای تغییر ایموجیِ ری اکشن خودکار تایپ کن: ری اکشن [ایموجی] — مثال: ری اکشن 👍"),
+            ("تنظیم ایموجی ری‌اکشن", "INFO::برای تغییر ایموجیِ ری‌اکشن خودکار تایپ کن: ری‌اکشن [ایموجی] — مثال: ری‌اکشن 👍"),
             ("راهنما", "راهنما"),
             ("پاکسازی لیست بلاک", "پاکسازی لیست بلاک"),
             ("ترک همگانی گروه", "ترک همگانی گروه"),

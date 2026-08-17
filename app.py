@@ -25,37 +25,6 @@ app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 app.config["PERMANENT_SESSION_LIFETIME"] = 180  # ۳ دقیقه بی‌کاری → لاگ‌اوت خودکار
 
-# کوکیِ سشن باید cross-origin هم ارسال بشه (اپ APK یک origin جداست)، پس
-# SameSite رو روی None می‌ذاریم. مرورگرها SameSite=None رو فقط با Secure=True
-# (یعنی روی HTTPS) قبول می‌کنن — سرور حتماً باید پشت HTTPS باشه (مثل Render).
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["SESSION_COOKIE_SECURE"] = True
-
-# ─── CORS برای اپ موبایل (WebView داخل APK) ──────────────────────────────────
-# اپ APK از یک origin متفاوت (یا بدون origin، مثل file://) درخواست می‌زنه،
-# پس بدون این هدرها مرورگرِ داخلیِ اپ درخواست رو مسدود می‌کنه و کاربر فقط
-# خطای «اتصال برقرار نشد» می‌بینه. چون از کوکیِ سشن (credentials) استفاده
-# می‌کنیم، نمی‌شه از "*" استفاده کرد — باید origin واقعیِ درخواست رو echo کنیم.
-@app.after_request
-def _add_cors_headers(response):
-    origin = request.headers.get("Origin")
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    else:
-        # بعضی WebViewها (به‌خصوص وقتی فایل HTML به‌صورت محلی/APK لود شده)
-        # اصلاً هدر Origin نمی‌فرستن؛ در این حالت هم اجازه می‌دیم.
-        response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    return response
-
-
-@app.route("/", defaults={"path": ""}, methods=["OPTIONS"])
-@app.route("/<path:path>", methods=["OPTIONS"])
-def _cors_preflight(path):
-    return ("", 204)
-
 
 def _ensure_helper_bot():
     """
@@ -495,20 +464,6 @@ def stop_bot_api():
     return jsonify({"ok": True})
 
 
-# ─── آنالیتیکسِ کسب‌وکار (فقط مالک) ───────────────────────────────────────────
-@app.route("/api/admin/analytics", methods=["GET"])
-@login_required
-def admin_analytics_api():
-    oid = owner_id()
-    tg_id = db.get_telegram_id_by_owner(oid)
-    if tg_id != config.OWNER_TG_ID:
-        return jsonify({"ok": False, "error": "فقط مالک به این بخش دسترسی دارد"}), 403
-
-    days = request.args.get("days", default=30, type=int)
-    import analytics
-    return jsonify({"ok": True, "data": analytics.get_summary(days=days)})
-
-
 # ─── API تنظیمات ─────────────────────────────────────────────────────────────
 @app.route("/api/settings", methods=["GET"])
 @login_required
@@ -835,54 +790,20 @@ if __name__ == "__main__":
     
     # ۴. استارت بات برای همه کاربران لاگین‌شده
     loop = get_loop()
-
-    def _start_all_users_and_helper():
-        """
-        استارت سشن همه‌ی کاربرها + بات کمکی پنل، در یک ترد جداگانه.
-
-        ⚠️ قبلاً این حلقه (که برای هر کاربر چند بار به دیتابیس و بعد به
-        تلگرام سر می‌زد و روی هر کاربر منتظر MTProto handshake می‌موند)
-        مستقیماً همین‌جا و قبل از app.run() اجرا می‌شد. یعنی تا وقتی
-        استارت *همه‌ی* کاربرها (و بعدش بات کمکی) تموم نمی‌شد، پورت وب اصلاً
-        باز نمی‌شد و health check رندر (/health) جواب نمی‌داد.
-        نتیجه‌ش دو تا مشکل بود:
-          ۱) کل سرویس خیلی کند بالا می‌اومد (هرچی کاربر لاگین‌شده بیشتر،
-             بالا اومدن کندتر — چون سریالی و با sleep(0.3) بین هرکدوم بود)
-          ۲) چون health check دیر جواب می‌گرفت، رندر گمان می‌کرد دیپلوی
-             جدید هنوز آماده نیست و دیپلوی/اینستنس قبلی رو بیشتر از حد
-             لازم زنده نگه می‌داشت — دقیقاً همون همپوشانیِ دو هاست که
-             باعث خطای «wrong session ID» می‌شد.
-        با انتقال این بخش به یک ترد پس‌زمینه، app.run() تقریباً بلافاصله
-        اجرا می‌شه و health check سریع جواب می‌گیره؛ استارت کاربرها هم
-        به همون ترتیب و امنیت قبلی (سریالی + فاصله + Duplicate Protection)
-        در پس‌زمینه انجام می‌شه.
-        """
-        for oid in db.get_all_logged_in_users():
-            # ✅ هر کاربر جدا try/except دارد — اگر استارت یک کاربر با خطا مواجه شود
-            # (مثلاً یک هیکاپ لحظه‌ای دیتابیس/تلگرام)، دیگر کاربرهای بعدی در این
-            # لیست بی‌خبر نمی‌مانند و استارت‌شان متوقف نمی‌شود (قبلاً یک خطا برای
-            # یک کاربر، کل حلقه را متوقف می‌کرد و باقی کاربرها هرگز ری‌استارت
-            # نمی‌شدند تا خودشان دستی دوباره لاگین کنند)
-            try:
-                bot_manager.start(oid, loop, check_tokens=False, is_restart=True)
-                print(f"🚀 بات کاربر {oid} استارت شد.")
-            except Exception as e:
-                print(f"❌ خطا در استارت خودکار کاربر {oid}: {e} — کاربر بعدی ادامه می‌یابد")
-            # ✅ فاصله‌ی کوچک بین استارت‌ها تا تلگرام همه‌ی این اتصال‌های هم‌زمان
-            # را به‌عنوان رفتار مشکوک/فلود نبیند
-            time.sleep(0.3)
-
-        # ۶. استارت بات کمکی پنل دکمه‌ای مدیریت سلف (اختیاری - نیازمند HELPER_BOT_TOKEN)
-        if config.HELPER_BOT_TOKEN:
-            from helper_bot import start_helper_bot
-            try:
-                asyncio.run_coroutine_threadsafe(start_helper_bot(), loop).result(timeout=30)
-            except Exception as e:
-                print(f"❌ خطا در استارت بات کمکی پنل: {e}")
-        else:
-            print("⚠️ HELPER_BOT_TOKEN تنظیم نشده — پنل دکمه‌ای سلف غیرفعال می‌ماند")
-
-    threading.Thread(target=_start_all_users_and_helper, daemon=True).start()
+    for oid in db.get_all_logged_in_users():
+        # ✅ هر کاربر جدا try/except دارد — اگر استارت یک کاربر با خطا مواجه شود
+        # (مثلاً یک هیکاپ لحظه‌ای دیتابیس/تلگرام)، دیگر کاربرهای بعدی در این
+        # لیست بی‌خبر نمی‌مانند و استارت‌شان متوقف نمی‌شود (قبلاً یک خطا برای
+        # یک کاربر، کل حلقه را متوقف می‌کرد و باقی کاربرها هرگز ری‌استارت
+        # نمی‌شدند تا خودشان دستی دوباره لاگین کنند)
+        try:
+            bot_manager.start(oid, loop, check_tokens=False, is_restart=True)
+            print(f"🚀 بات کاربر {oid} استارت شد.")
+        except Exception as e:
+            print(f"❌ خطا در استارت خودکار کاربر {oid}: {e} — کاربر بعدی ادامه می‌یابد")
+        # ✅ فاصله‌ی کوچک بین استارت‌ها تا تلگرام همه‌ی این اتصال‌های هم‌زمان
+        # را به‌عنوان رفتار مشکوک/فلود نبیند
+        time.sleep(0.3)
 
     # ۵. واچ‌داگ سلامت سلف‌ها — هر چند دقیقه چک می‌کند که آیا سلف هر کاربر
     #    لاگین‌شده واقعاً در حال اجراست؛ اگر نبود (مثلاً به هر دلیلی، حتی
@@ -919,5 +840,15 @@ if __name__ == "__main__":
 
     threading.Thread(target=_self_heal_watchdog, daemon=True).start()
     print("✅ واچ‌داگ سلامت سلف‌ها استارت شد")
+
+    # ۶. استارت بات کمکی پنل دکمه‌ای مدیریت سلف (اختیاری - نیازمند HELPER_BOT_TOKEN)
+    if config.HELPER_BOT_TOKEN:
+        from helper_bot import start_helper_bot
+        try:
+            asyncio.run_coroutine_threadsafe(start_helper_bot(), get_loop()).result(timeout=30)
+        except Exception as e:
+            print(f"❌ خطا در استارت بات کمکی پنل: {e}")
+    else:
+        print("⚠️ HELPER_BOT_TOKEN تنظیم نشده — پنل دکمه‌ای سلف غیرفعال می‌ماند")
 
     app.run(host="0.0.0.0", port=config.PORT, debug=False)

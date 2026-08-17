@@ -11,63 +11,18 @@ import redis_cache as rc
 
 # ─── اتصال به دیتابیس ──────────────────────────────────────────────────────────
 import threading
-import time
 _conn = None
-_conn_lock = threading.RLock()
-_last_used = 0.0
-_PING_IDLE_SECONDS = 45  # اگه کانکشن بیشتر از این بی‌کار بوده، قبل از استفاده تستش کن
-
+_conn_lock = threading.Lock()
 
 def get_conn():
-    """دریافت اتصال به دیتابیس (thread-safe) — با پینگِ سبک برای کانکشنِ بی‌کار."""
-    global _conn, _last_used
-    now = time.time()
-
+    """دریافت اتصال به دیتابیس (thread-safe)"""
+    global _conn
     if _conn is None or _conn.closed:
-        _conn = _new_connection()
-        _last_used = now
-        return _conn
-
-    # ✅ اگه کانکشن مدتی بی‌کار بوده، ممکنه سمتِ سرور (Supabase pooler) بی‌سروصدا
-    # قطعش کرده باشه بدون اینکه سمتِ کلاینت هنوز متوجه شده باشه (نه یه
-    # OperationalError واضح، فقط سوکتِ مرده). یه پینگِ سبک قبل از استفاده‌ی
-    # واقعی، این حالت رو زودتر می‌گیره و به‌جای شکست‌خوردنِ کوئریِ اصلی
-    # (مثلاً افزودنِ چنلِ جوینِ اجباری)، همینجا ساکت‌وصل‌مجدد می‌کنه.
-    if now - _last_used > _PING_IDLE_SECONDS:
-        try:
-            ping_cur = _conn.cursor()
-            ping_cur.execute("SELECT 1")
-            ping_cur.close()
-        except Exception:
-            try:
-                _conn.close()
-            except Exception:
-                pass
-            _conn = _new_connection()
-
-    _last_used = now
+        _conn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=10)
+        _conn.autocommit = True
     return _conn
 
-
-def _new_connection():
-    conn = psycopg2.connect(
-        DATABASE_URL,
-        sslmode='require',
-        connect_timeout=10,
-        # ✅ کیپ‌الایوِ TCP — بدونِ این، پروکسی/پولرِ بینِ ما و Postgres
-        # (خیلی از فراهم‌کننده‌های مدیریت‌شده مثلِ Supabase از این پولرها
-        # استفاده می‌کنن) می‌تونه کانکشنِ بی‌کار رو بدونِ اطلاع‌دادن به
-        # کلاینت قطع کنه؛ کیپ‌الایو باعث می‌شه یا کانکشن زنده بمونه، یا
-        # مرگش زودتر (با یه خطای واضح) کشف بشه.
-        keepalives=1,
-        keepalives_idle=30,
-        keepalives_interval=10,
-        keepalives_count=5,
-    )
-    conn.autocommit = True
-    return conn
-
-def execute_query(query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = False, _retry: bool = True):
+def execute_query(query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = False):
     """
     اجرای کوئری با مدیریت خودکار اتصال.
 
@@ -76,29 +31,19 @@ def execute_query(query: str, params: tuple = None, fetch_one: bool = False, fet
     اگه همزمان از چند Thread روی یک کانکشن کوئری زده شود؛ بدون قفل، ممکنه کانکشن
     به‌هم بریزه و باعث خطاهای عجیب/قطعی‌های موقتی برای کاربرهای دیگه بشه.
     به همین خاطر کل عملیات با یک Lock سراسری محافظت می‌شود.
-
-    ✅ ری‌ترای خودکار: Supabase/Postgres گاهی کانکشن‌های بی‌کار رو خودش قطع
-    می‌کنه (idle timeout). قبلاً همین باعث می‌شد اولین کوئری بعد از یه مدت
-    سکوت با «خطا در اتصال به دیتابیس» شکست بخوره (مثلاً موقعِ افزودنِ چنلِ
-    جوینِ اجباری)، چون کانکشنِ خراب فقط دور ریخته می‌شد ولی خودِ کوئری دوباره
-    اجرا نمی‌شد. حالا اگه کانکشن خراب باشه، یک‌بار با کانکشنِ تازه دوباره
-    امتحان می‌شه — تنها اگه اون تلاشِ دوم هم شکست بخوره خطا بالا می‌ره.
     """
     with _conn_lock:
-        global _conn, _last_used
+        global _conn
         conn = get_conn()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             try:
                 cur.execute(query, params)
                 if fetch_one:
-                    result = cur.fetchone()
+                    return cur.fetchone()
                 elif fetch_all:
-                    result = cur.fetchall()
-                else:
-                    result = cur.rowcount
-                _last_used = time.time()
-                return result
+                    return cur.fetchall()
+                return cur.rowcount
             finally:
                 cur.close()
         except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
@@ -111,10 +56,6 @@ def execute_query(query: str, params: tuple = None, fetch_one: bool = False, fet
             except Exception:
                 pass
             _conn = None
-            if _retry:
-                # کانکشن تازه رو همین‌جا امتحان کن، بدونِ اینکه خطا رو به
-                # صدا‌زننده برسونیم — اکثر قطعی‌های موقتی همینجا حل می‌شن
-                return execute_query(query, params, fetch_one=fetch_one, fetch_all=fetch_all, _retry=False)
             raise
         except Exception as e:
             print(f"❌ Database error: {e}")
@@ -206,22 +147,6 @@ def init_tables():
             username TEXT UNIQUE NOT NULL,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        """,
-        # جدول رویدادهای کسب‌وکار (برای آنالیتیکس: خرید/تمدید اشتراک،
-        # هدیه روزانه، رفرال موفق، روشن/خاموش کردن قابلیت‌ها و ...)
-        """
-        CREATE TABLE IF NOT EXISTS amel_events (
-            id SERIAL PRIMARY KEY,
-            owner_id INTEGER,
-            event_type TEXT NOT NULL,
-            metadata TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """,
-        # ایندکس برای کوئری‌های آنالیتیکس (فیلتر بر اساس نوع رویداد + بازه‌ی زمانی)
-        """
-        CREATE INDEX IF NOT EXISTS idx_amel_events_type_time
-            ON amel_events (event_type, created_at)
         """
     ]
     
@@ -312,52 +237,12 @@ def account_exists() -> bool:
         return False
 
 def save_telegram_user_id(owner_id: int, tg_user_id: int):
-    """
-    آیدی عددیِ تلگرام رو ذخیره می‌کنه و هم‌زمان رمزِ حسابِ کاربر رو خودکار
-    برابر با همون آیدیِ عددی می‌کنه (یعنی از الان به بعد، رمزِ ورودِ پنل/اپ
-    همیشه آیدی عددیِ تلگرامِ خودشه — نیازی به دخالت دستی نیست، چه برای
-    کاربرِ تازه ثبت‌نام‌کرده و چه برای کسی که قبلاً حساب داشته و الان دوباره
-    وارد تلگرامش می‌شه).
-    """
     try:
-        query = "UPDATE amel_accounts SET telegram_user_id = %s, password_hash = %s WHERE id = %s"
-        execute_query(query, (tg_user_id, _hash_pw(str(tg_user_id)), owner_id))
-        print(f"✅ آیدی تلگرام {tg_user_id} برای کاربر {owner_id} ذخیره شد و رمز با آیدی عددی همگام شد")
+        query = "UPDATE amel_accounts SET telegram_user_id = %s WHERE id = %s"
+        execute_query(query, (tg_user_id, owner_id))
+        print(f"✅ آیدی تلگرام {tg_user_id} برای کاربر {owner_id} ذخیره شد")
     except Exception as e:
         print(f"❌ save_telegram_user_id error: {e}")
-
-
-def sync_all_passwords_with_telegram_id() -> int:
-    """
-    یک‌بار موقع بالا اومدنِ برنامه، رمزِ همه‌ی حساب‌هایی که telegram_user_id
-    دارن رو با آیدیِ عددیشون همگام می‌کنه — هم برای کاربرانِ قدیمی که از
-    قبل توی دیتابیس بودن، هم برای هر کاربرِ جدیدی که این‌جا اضافه شده.
-    خروجی: تعداد ردیف‌هایی که آپدیت شدن.
-    """
-    try:
-        query = """
-            UPDATE amel_accounts
-            SET password_hash = %s
-            WHERE telegram_user_id = %s AND password_hash != %s
-        """
-        rows = execute_query(
-            "SELECT id, telegram_user_id FROM amel_accounts WHERE telegram_user_id IS NOT NULL",
-            fetch_all=True,
-        ) or []
-        updated = 0
-        for row in rows:
-            tg_id = row["telegram_user_id"]
-            new_hash = _hash_pw(str(tg_id))
-            execute_query(
-                "UPDATE amel_accounts SET password_hash = %s WHERE id = %s AND password_hash != %s",
-                (new_hash, row["id"], new_hash),
-            )
-            updated += 1
-        print(f"✅ همگام‌سازی رمزها با آیدیِ عددیِ تلگرام انجام شد ({updated} حساب بررسی شد)")
-        return updated
-    except Exception as e:
-        print(f"❌ sync_all_passwords_with_telegram_id error: {e}")
-        return 0
 
 def get_telegram_id_by_owner(owner_id: int) -> Optional[int]:
     try:
@@ -510,11 +395,6 @@ def toggle_setting(owner_id: int, key: str) -> bool:
     current = get_setting(owner_id, key, "0")
     new_val = "0" if current == "1" else "1"
     set_setting(owner_id, key, new_val)
-    try:
-        import analytics
-        analytics.track_event(owner_id, "feature_toggled", {"key": key, "value": new_val})
-    except Exception:
-        pass
     return new_val == "1"
 
 def get_all_logged_in_users() -> List[int]:
@@ -630,11 +510,6 @@ def claim_daily_token(owner_id: int):
             "UPDATE amel_tokens SET balance = balance + %s, total_earned = total_earned + %s, last_daily_ts = %s WHERE owner_id = %s",
             (DAILY_AMOUNT, DAILY_AMOUNT, now_ts, owner_id)
         )
-        try:
-            import analytics
-            analytics.track_event(owner_id, "daily_gift_claimed", {"amount": DAILY_AMOUNT})
-        except Exception:
-            pass
         return True, f"🎁 <b>{DAILY_AMOUNT} الماس</b> دریافت کردید!\n💎 فردا دوباره بیا!"
     except Exception as e:
         print(f"❌ claim_daily_token error: {e}")
@@ -671,11 +546,6 @@ def process_referral(referrer_owner_id: int, referred_tg_id: int) -> bool:
         query = "INSERT INTO amel_referrals (referrer_owner_id, referred_tg_id, created_at) VALUES (%s, %s, %s)"
         execute_query(query, (referrer_owner_id, referred_tg_id, datetime.datetime.now().isoformat()))
         add_tokens(referrer_owner_id, REFERRAL_TOKENS)
-        try:
-            import analytics
-            analytics.track_event(referrer_owner_id, "referral_success", {"referred_tg_id": referred_tg_id})
-        except Exception:
-            pass
         return True
     except Exception as e:
         print(f"❌ process_referral error: {e}")
@@ -1247,16 +1117,6 @@ def set_subscription(owner_id: int, plan: str, days: int):
             (owner_id, plan, expires, plan, expires)
         )
         rc.invalidate_subscribe(owner_id)  # کش اشتراک رو پاک کن
-
-        # ثبت رویداد آنالیتیکس — همه‌ی مسیرهای فعال‌سازی/تمدید اشتراک
-        # (خرید با الماس، کارت‌به‌کارت، استارز، هدیه، قرعه‌کشی) از همین
-        # تابع رد می‌شن، پس یک نقطه‌ی ثبت کافیه.
-        try:
-            import analytics
-            analytics.track_event(owner_id, "subscription_activated", {"plan": plan, "days": days})
-        except Exception:
-            pass
-
         return expires
     except Exception as e:
         print(f"❌ set_subscription error: {e}")
