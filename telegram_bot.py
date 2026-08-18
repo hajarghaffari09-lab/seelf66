@@ -3724,7 +3724,7 @@ def start_token_bot():
         discount_line = f"🎟 کد تخفیف: <b>{discount_code}</b> ({discount_percent}٪ تخفیف)\n" if discount_code else ""
         _bot.send_message(
             chat_id,
-            f"{EM.EMOJI_SHOMARE_KART} <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
+            f"💳 <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
             f"{discount_line}"
             f"💰 مبلغ قابل پرداخت: <b>{final_toman:,} تومان</b>\n"
             f"💳 شماره کارت: <code>{card}</code>\n"
