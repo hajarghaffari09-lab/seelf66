@@ -4011,7 +4011,7 @@ def start_token_bot():
             # ── اشتراک با کارت ──────────────────────────────────────────────
             elif data == "pur_sub_card":
                 _bot.edit_message_text(
-                    "{EM.EMOJI_ESHTRAK} <b>خرید اشتراک با کارت</b>\n\nیک پلن را انتخاب کنید:",
+                    "<b>خرید اشتراک با کارت</b>\n\nیک پلن را انتخاب کنید:",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=_plans_keyboard("pur_scard")
                 )
