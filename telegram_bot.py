@@ -3317,9 +3317,9 @@ def start_token_bot():
             if reply_to:
                 kwargs["reply_to_message_id"] = reply_to
             _bot.send_message(chat_id,
-                f"🔗 <b>لینک رفرال شما:</b>\n<code>{link}</code>\n\n"
-                f"👥 تعداد: <b>{ref_count}</b>\n"
-                f"🎁 پاداش: <b>{config.REFERRAL_TOKENS} الماس</b> (معادل {referral_value} تومان)",
+                f"{EM.EMOJI_LINK_REFRAL} <b>لینک رفرال شما:</b>\n<code>{link}</code>\n\n"
+                f"{EM.EMOJI_TEDAD} تعداد: <b>{ref_count}</b>\n"
+                f"{EM.EMOJI_PADASH} پاداش: <b>{config.REFERRAL_TOKENS} الماس</b> (معادل {referral_value} تومان)",
                 **kwargs)
         except Exception as e:
             print(f"❌ خطا در _do_referral: {e}")

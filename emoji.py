@@ -128,6 +128,11 @@ ID_BALANCE_PRICE   = 5927169041595634481   # 💵 قیمت هر الماس
 ID_SHOMARE_KART   = 5927169041595634481
 
 
+#پنل لینک رفرال
+ID_LINK_REFRAL    = 5334618207930045692
+ID_TEDAD          = 5920090136627908485
+ID_PADASH         = 5985472565508838112
+
 # ─────────────────────────────────────────
 #  توابع کمکی
 # ─────────────────────────────────────────
@@ -206,6 +211,9 @@ _EMOJI_MAP = {
     "BALANCE_REFERRAL": (ID_BALANCE_REFERRAL, "👥"),
     "BALANCE_PRICE":    (ID_BALANCE_PRICE,    "💵"),
     "SHOMARE_KART":     (ID_SHOMARE_KART,    "💵"),
+    "LINK_REFRAL":      (ID_LINK_REFRAL,    "💵"),
+    "TEDAD":          (ID_TEDAD,        "💵"),
+    "PADASH":         (ID_PADASH,       "💵"),
 }
 
 
