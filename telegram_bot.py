@@ -3921,7 +3921,7 @@ def start_token_bot():
             if reply_to:
                 kwargs["reply_to_message_id"] = reply_to
             _bot.send_message(chat_id,
-                f"🛒 <b>منوی خرید</b>\n\n"
+                f"{EM.EMOJI_MENOY_KHARID} <b>منوی خرید</b>\n\n"
                 f"{EM.EMOJI_BALANCE} موجودی فعلی شما: <b>{balance} الماس</b>\n\n"
                 f"یکی از گزینه‌های زیر را انتخاب کنید:",
                 **kwargs)
@@ -3943,7 +3943,7 @@ def start_token_bot():
                 balance = db.get_token_balance(account["id"])
                 _purchase_states.pop(tg_id, None)
                 return _bot.edit_message_text(
-                    f"🛒 <b>منوی خرید</b>\n\n💎 موجودی: <b>{balance} الماس</b>\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
+                    f"{EM.EMOJI_MENOY_KHARID} <b>منوی خرید</b>\n\n{EM.EMOJI_MOJODI} موجودی: <b>{balance} الماس</b>\n\nیکی از گزینه‌های زیر را انتخاب کنید:",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=_purchase_main_keyboard()
                 )
@@ -4001,9 +4001,9 @@ def start_token_bot():
                 expires = db.set_subscription(account["id"], plan_key, plan["days"])
                 exp_str = expires.strftime("%Y-%m-%d") if expires else "نامشخص"
                 _bot.edit_message_text(
-                    f"✅ <b>اشتراک {plan['fa']} فعال شد!</b>\n\n"
-                    f"💎 {cost} الماس کسر شد\n"
-                    f"📅 انقضا: <b>{exp_str}</b>",
+                    f"{EM.EMOJI_ESHTRACK} <b>اشتراک {plan['fa']} فعال شد!</b>\n\n"
+                    f"{EM.EMOJI_MANFI} {cost} الماس کسر شد\n"
+                    f"{EM.EMOJI_ENGHEZA} انقضا: <b>{exp_str}</b>",
                     chat_id=call.message.chat.id, message_id=call.message.message_id
                 )
                 _bot.answer_callback_query(call.id, f"✅ اشتراک {plan['fa']} فعال شد!", show_alert=True)
@@ -4011,7 +4011,7 @@ def start_token_bot():
             # ── اشتراک با کارت ──────────────────────────────────────────────
             elif data == "pur_sub_card":
                 _bot.edit_message_text(
-                    "💳 <b>خرید اشتراک با کارت</b>\n\nیک پلن را انتخاب کنید:",
+                    "{EM.EMOJI_ESHTRAK} <b>خرید اشتراک با کارت</b>\n\nیک پلن را انتخاب کنید:",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=_plans_keyboard("pur_scard")
                 )
@@ -4029,9 +4029,9 @@ def start_token_bot():
                 )
                 markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pur_sub_card", style="danger"))
                 _bot.edit_message_text(
-                    f"💳 <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
-                    f"💰 مبلغ: <b>{plan['toman']:,} تومان</b>\n\n"
-                    f"🎟 کد تخفیف دارید؟",
+                    f"{EM.EMOJI_PARDAKHT} <b>پرداخت اشتراک {plan['fa']}</b>\n\n"
+                    f"{EM.EMOJI_MABLAGH} مبلغ: <b>{plan['toman']:,} تومان</b>\n\n"
+                    f"{EM.EMOJI_COD} کد تخفیف دارید؟",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,
                     reply_markup=markup
                 )
@@ -4194,9 +4194,8 @@ def start_token_bot():
                 # 🔴 دکمه بازگشت با رنگ danger (قرمز)
                 markup.add(types.InlineKeyboardButton("🔙 بازگشت", callback_data="pur_back", style="danger"))
                 _bot.edit_message_text(
-                    f"🛍 <b>خرید الماس</b>\n\n"
-                    f"💎 نرخ: هر ۱۰۰ الماس = <b>{100 * DIAMOND_RATE:,} تومان</b>\n"
-                    f"📌 حداقل خرید: <b>{DIAMOND_MIN_BUY} الماس</b>\n\n"
+                    f"{EM.EMOJI_ALMAS} نرخ: هر ۱۰۰ الماس = <b>{100 * DIAMOND_RATE:,} تومان</b>\n"
+                    f"{EM.EMOJI_MAX_ALMAS} حداقل خرید: <b>{DIAMOND_MIN_BUY} الماس</b>\n\n"
                     f"چه تعداد الماس می‌خوای؟ (عدد بنویس)\n"
                     f"مثال: <code>200</code>",
                     chat_id=call.message.chat.id, message_id=call.message.message_id,

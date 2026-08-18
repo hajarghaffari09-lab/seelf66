@@ -126,6 +126,17 @@ ID_BALANCE_PRICE   = 5927169041595634481   # 💵 قیمت هر الماس
 
 #پنل خرید
 ID_SHOMARE_KART   = 5927169041595634481
+ID_MENOY_KHARID   = 5816928449561892419
+ID_MOJODI         = 5970026312629228447
+ID_ESHTRAK        = 5962804544164338396
+ID_ALMAS          = 5465498106390920109
+ID_MAX_ALMAS      = 5956180995924300841
+ID_PARDAKHT       = 5467679271172446725
+ID_MABLAGH        = 5467897094733832077
+ID_COD            = 5816537843761160266
+ID_MANFI          = 5816590375506156707
+ID_ENGHEZA        = 5271787358990125058
+
 
 
 #پنل لینک رفرال
@@ -214,6 +225,21 @@ _EMOJI_MAP = {
     "LINK_REFRAL":      (ID_LINK_REFRAL,    "💵"),
     "TEDAD":          (ID_TEDAD,        "💵"),
     "PADASH":         (ID_PADASH,       "💵"),
+    "MENOY_KHARID":    (ID_MENOY_KHARID,  "💵"),
+    "MOJODI":          (ID_MOJODI,      "💵"),
+    "ESHTRAK":         (ID_ESHTRAK,      "💵"),
+    "ALMAS":          (ID_ALMAS,       "💵"),
+    "MAX_ALMAS":    (ID_MAX_ALMAS,     "💵"),
+    "PARDAKHT":     (ID_PARDAKHT,      "💵"),
+    "MABLAGH":       (ID_MABLAGH,       "💵"),
+    "COD":           (ID_COD,        "💵"),
+    "MANFI":         (ID_MANFI,       "💵"),
+    "ENGHEZA":       (ID_ENGHEZA,      "💵"),
+
+
+
+
+
 }
 
 
