@@ -124,6 +124,10 @@ ID_BALANCE_TOTAL   = 5931472654660800739   # 📊 کل
 ID_BALANCE_REFERRAL = 5920052658743283381  # 👥 رفرال
 ID_BALANCE_PRICE   = 5927169041595634481   # 💵 قیمت هر الماس
 
+#پنل خرید
+ID_SHOMARE_KART   = 5927169041595634481
+
+
 # ─────────────────────────────────────────
 #  توابع کمکی
 # ─────────────────────────────────────────
@@ -201,6 +205,7 @@ _EMOJI_MAP = {
     "BALANCE_TOTAL":    (ID_BALANCE_TOTAL,    "📊"),
     "BALANCE_REFERRAL": (ID_BALANCE_REFERRAL, "👥"),
     "BALANCE_PRICE":    (ID_BALANCE_PRICE,    "💵"),
+    "SHOMARE_KART":     (ID_SHOMARE_KART,    "💵"),
 }
 
 
