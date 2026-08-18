@@ -111,6 +111,12 @@ ID_NEW_NUMBER   = 5985774024968379294   # 🆕 شماره جدید
 ID_REACT_CANCEL = 5985346521103604145   # ❌ لغو (فعال‌سازی مجدد سلف)
 ID_REACT_CONFIRM = 5985596818912712352  # ✅ تایید (فعال‌سازی مجدد سلف)
 
+# پنل «مدیریت سلف» — متن پیام
+ID_SELF_MGMT_TITLE = 5335021522539009147   # 🤖 عنوان «مدیریت سلف»
+ID_STATUS_LABEL     = 5465124852258059291  # 📊 لیبل «وضعیت:» و «اشتراک:»
+ID_SUB_ACTIVE       = 5334749663994074793  # ✅ اشتراک فعال
+ID_SUB_EXPIRED      = 5332668120978967508  # ❌ اشتراک منقضی/ندارید
+
 # ─────────────────────────────────────────
 #  توابع کمکی
 # ─────────────────────────────────────────
@@ -179,6 +185,10 @@ _EMOJI_MAP = {
     "NEW_NUMBER":   (ID_NEW_NUMBER,   "🆕"),
     "REACT_CANCEL": (ID_REACT_CANCEL, "❌"),
     "REACT_CONFIRM": (ID_REACT_CONFIRM, "✅"),
+    "SELF_MGMT_TITLE": (ID_SELF_MGMT_TITLE, "🤖"),
+    "STATUS_LABEL":    (ID_STATUS_LABEL,    "📊"),
+    "SUB_ACTIVE":      (ID_SUB_ACTIVE,      "✅"),
+    "SUB_EXPIRED":     (ID_SUB_EXPIRED,     "❌"),
 }
 
 

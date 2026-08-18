@@ -2378,18 +2378,18 @@ def start_token_bot():
                         remaining = f"{hours} ساعت و {mins} دقیقه"
                     else:
                         remaining = f"{mins} دقیقه"
-                    sub_line = f"✅ فعال — باقی‌مانده: <b>{remaining}</b>"
+                    sub_line = f"{EM.EMOJI_SUB_ACTIVE} فعال — باقی‌مانده: <b>{remaining}</b>"
                 else:
-                    sub_line = "❌ منقضی شده"
+                    sub_line = f"{EM.EMOJI_SUB_EXPIRED} منقضی شده"
             else:
                 sub_line = "❓ نامشخص"
         else:
-            sub_line = "❌ اشتراک ندارید"
+            sub_line = f"{EM.EMOJI_SUB_EXPIRED} اشتراک ندارید"
 
         return (
-            f"🤖 <b>مدیریت سلف</b>\n\n"
-            f"{status_icon} وضعیت: <b>{status_text}</b>\n"
-            f"📦 اشتراک: {sub_line}\n\n"
+            f"{EM.EMOJI_SELF_MGMT_TITLE} <b>مدیریت سلف</b>\n\n"
+            f"{EM.EMOJI_STATUS_LABEL} وضعیت: <b>{status_text}</b>\n"
+            f"{EM.EMOJI_STATUS_LABEL} اشتراک: {sub_line}\n\n"
             f"از دکمه‌های زیر استفاده کنید:"
         )
 
