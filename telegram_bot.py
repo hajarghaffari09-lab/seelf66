@@ -3088,11 +3088,11 @@ def start_token_bot():
             ref_count = db.get_referral_count(account["id"])
             token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.reply_to(message,
-                f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
-                f"💰 فعلی: <b>{stats['balance']}</b>\n"
-                f"📊 کل: <b>{stats['total_earned']}</b>\n"
-                f"👥 رفرال: <b>{ref_count}</b> نفر\n"
-                f"💵 قیمت هر الماس: <b>{token_price} تومان</b>",
+                f"{EM.EMOJI_BALANCE_TITLE} <b>موجودی الماس</b>\n\n"
+                f"{EM.EMOJI_BALANCE_CURRENT} فعلی: <b>{stats['balance']}</b>\n"
+                f"{EM.EMOJI_BALANCE_TOTAL} کل: <b>{stats['total_earned']}</b>\n"
+                f"{EM.EMOJI_BALANCE_REFERRAL} رفرال: <b>{ref_count}</b> نفر\n"
+                f"{EM.EMOJI_BALANCE_PRICE} قیمت هر الماس: <b>{token_price} تومان</b>",
                 reply_markup=_main_inline_keyboard(account))
         except Exception as e:
             print(f"❌ خطا در cmd_balance: {e}")
@@ -3112,11 +3112,11 @@ def start_token_bot():
             token_price = getattr(config, 'TOKEN_PRICE_TOMAN', 50)
             _bot.answer_callback_query(call.id)
             _bot.send_message(call.message.chat.id,
-                f"{EM.EMOJI_DIAMONDS} <b>موجودی الماس</b>\n\n"
-                f"💰 فعلی: <b>{stats['balance']}</b>\n"
-                f"📊 کل: <b>{stats['total_earned']}</b>\n"
-                f"👥 رفرال: <b>{ref_count}</b> نفر\n"
-                f"💵 قیمت هر الماس: <b>{token_price} تومان</b>",
+                f"{EM.EMOJI_BALANCE_TITLE} <b>موجودی الماس</b>\n\n"
+                f"{EM.EMOJI_BALANCE_CURRENT} فعلی: <b>{stats['balance']}</b>\n"
+                f"{EM.EMOJI_BALANCE_TOTAL} کل: <b>{stats['total_earned']}</b>\n"
+                f"{EM.EMOJI_BALANCE_REFERRAL} رفرال: <b>{ref_count}</b> نفر\n"
+                f"{EM.EMOJI_BALANCE_PRICE} قیمت هر الماس: <b>{token_price} تومان</b>",
                 reply_markup=_main_inline_keyboard(account))
         except Exception as e:
             print(f"❌ خطا در callback_menu_balance: {e}")

@@ -117,6 +117,13 @@ ID_STATUS_LABEL     = 5465124852258059291  # 📊 لیبل «وضعیت:» و «
 ID_SUB_ACTIVE       = 5334749663994074793  # ✅ اشتراک فعال
 ID_SUB_EXPIRED      = 5332668120978967508  # ❌ اشتراک منقضی/ندارید
 
+# پنل «موجودی الماس» — متن پیام
+ID_BALANCE_TITLE   = 5807465992363710697   # 💎 عنوان «موجودی الماس»
+ID_BALANCE_CURRENT = 6028530359975548369   # 💰 فعلی
+ID_BALANCE_TOTAL   = 5931472654660800739   # 📊 کل
+ID_BALANCE_REFERRAL = 5920052658743283381  # 👥 رفرال
+ID_BALANCE_PRICE   = 5927169041595634481   # 💵 قیمت هر الماس
+
 # ─────────────────────────────────────────
 #  توابع کمکی
 # ─────────────────────────────────────────
@@ -189,6 +196,11 @@ _EMOJI_MAP = {
     "STATUS_LABEL":    (ID_STATUS_LABEL,    "📊"),
     "SUB_ACTIVE":      (ID_SUB_ACTIVE,      "✅"),
     "SUB_EXPIRED":     (ID_SUB_EXPIRED,     "❌"),
+    "BALANCE_TITLE":    (ID_BALANCE_TITLE,    "💎"),
+    "BALANCE_CURRENT":  (ID_BALANCE_CURRENT,  "💰"),
+    "BALANCE_TOTAL":    (ID_BALANCE_TOTAL,    "📊"),
+    "BALANCE_REFERRAL": (ID_BALANCE_REFERRAL, "👥"),
+    "BALANCE_PRICE":    (ID_BALANCE_PRICE,    "💵"),
 }
 
 
