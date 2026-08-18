@@ -227,7 +227,7 @@ _EMOJI_MAP = {
     "PADASH":         (ID_PADASH,       "💵"),
     "MENOY_KHARID":    (ID_MENOY_KHARID,  "💵"),
     "MOJODI":          (ID_MOJODI,      "💵"),
-    "ESHTRAK":         (ID_ESHTRAK,      "💵"),
+    "ESHTRACK":         (ID_ESHTRAK,      "💵"),
     "ALMAS":          (ID_ALMAS,       "💵"),
     "MAX_ALMAS":    (ID_MAX_ALMAS,     "💵"),
     "PARDAKHT":     (ID_PARDAKHT,      "💵"),
