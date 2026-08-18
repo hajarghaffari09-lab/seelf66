@@ -2605,13 +2605,10 @@ def start_token_bot():
                 _bot.send_message(
                     call.message.chat.id,
                     "✅ <b>سلف با موفقیت از اکانت تلگرام خارج شد.</b>\n\n"
-                    f"👤 یوزرنیم پنل شما (<b>{account['username']}</b>) و موجودی الماس حفظ شدند.\n\n"
-                    "هر زمان خواستید، با همین اکانت یا یک اکانت تلگرام دیگر دوباره وصل شوید 👇",
-                    reply_markup=types.InlineKeyboardMarkup(row_width=1).add(
-                        types.InlineKeyboardButton("🤖 وصل کردن دوباره سلف", callback_data="reg_start", style="success")
-                    ),
+                    f"👤 یوزرنیم پنل شما (<b>{account['username']}</b>) و موجودی الماس حفظ شدند.",
                 )
                 _bot.send_message(call.message.chat.id, "منوی اصلی:", reply_markup=kb)
+                _send_reactivate_choice(account["id"], call.message.chat.id)
             except Exception:
                 pass
         except Exception as e:
@@ -2620,6 +2617,148 @@ def start_token_bot():
                 _bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:80]}", show_alert=True)
             except Exception:
                 pass
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # 🔄 فعال‌سازی دوباره سلف بعد از خروج از اکانت — انتخاب شماره قبلی / جدید
+    # ══════════════════════════════════════════════════════════════════════════
+    def _send_reactivate_choice(account_id: int, chat_id, message_id=None):
+        """بعد از خروج سلف از اکانت، از کاربر می‌پرسد سلف را برای همان شماره
+        قبلی فعال کند یا با یک شماره جدید."""
+        stored_phone = db.get_setting(account_id, "phone", "") or ""
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        if stored_phone:
+            markup.add(
+                types.InlineKeyboardButton(
+                    " همان شماره قبلی", callback_data="react_prev",
+                    style="primary", icon_custom_emoji_id=str(EM.ID_PREV_NUMBER),
+                )
+            )
+        markup.add(
+            types.InlineKeyboardButton(
+                " شماره جدید", callback_data="react_new",
+                style="success", icon_custom_emoji_id=str(EM.ID_NEW_NUMBER),
+            )
+        )
+        markup.add(
+            types.InlineKeyboardButton(
+                " لغو", callback_data="react_cancel",
+                style="danger", icon_custom_emoji_id=str(EM.ID_REACT_CANCEL),
+            )
+        )
+
+        phone_line = f"\n📞 شماره قبلی: <code>{stored_phone}</code>\n" if stored_phone else ""
+        text = (
+            "🔄 <b>فعال‌سازی دوباره سلف</b>\n\n"
+            "می‌خواهید سلف را برای همان شماره قبلی فعال کنید یا با یک شماره جدید وصل شوید؟"
+            f"{phone_line}"
+        )
+        _send_or_edit(text, chat_id, message_id, reply_markup=markup)
+
+    @_bot.callback_query_handler(func=lambda call: call.data == "react_cancel")
+    def callback_react_cancel(call):
+        _bot.answer_callback_query(call.id, "لغو شد.")
+        try:
+            _bot.edit_message_text("❌ عملیات لغو شد.", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        except Exception:
+            pass
+
+    # ── انتخاب «همان شماره قبلی» → تایید نهایی قبل از ارسال کد ───────────────
+    @_bot.callback_query_handler(func=lambda call: call.data == "react_prev")
+    def callback_react_prev(call):
+        try:
+            account = _get_account_cached(call.from_user.id)
+            if not account:
+                return _bot.answer_callback_query(call.id, "❌ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
+
+            stored_phone = db.get_setting(account["id"], "phone", "") or ""
+            if not stored_phone:
+                _bot.answer_callback_query(call.id, "⚠️ شماره قبلی‌ای ثبت نشده.", show_alert=True)
+                return _send_reactivate_choice(account["id"], call.message.chat.id, call.message.message_id)
+
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton(
+                    " تایید", callback_data="react_prev_confirm",
+                    style="success", icon_custom_emoji_id=str(EM.ID_REACT_CONFIRM),
+                ),
+                types.InlineKeyboardButton(
+                    " لغو", callback_data="react_cancel",
+                    style="danger", icon_custom_emoji_id=str(EM.ID_REACT_CANCEL),
+                ),
+            )
+            _bot.answer_callback_query(call.id)
+            _send_or_edit(
+                f"📞 آیا مطمئنید می‌خواهید سلف را برای شماره زیر فعال کنید؟\n\n<code>{stored_phone}</code>",
+                call.message.chat.id, call.message.message_id, reply_markup=markup,
+            )
+        except Exception as e:
+            print(f"❌ خطا در callback_react_prev: {e}")
+            try:
+                _bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:80]}", show_alert=True)
+            except Exception:
+                pass
+
+    @_bot.callback_query_handler(func=lambda call: call.data == "react_prev_confirm")
+    def callback_react_prev_confirm(call):
+        if not require_membership_callback(call):
+            return
+        tg_id = call.from_user.id
+        try:
+            account = _get_account_cached(tg_id)
+            if not account:
+                return _bot.answer_callback_query(call.id, "❌ ابتدا در پنل وب ثبت‌نام کنید.", show_alert=True)
+
+            stored_phone = db.get_setting(account["id"], "phone", "") or ""
+            if not stored_phone:
+                _bot.answer_callback_query(call.id, "⚠️ شماره قبلی‌ای ثبت نشده.", show_alert=True)
+                return _send_reactivate_choice(account["id"], call.message.chat.id, call.message.message_id)
+
+            _bot.answer_callback_query(call.id)
+            _reg_sessions[tg_id] = {
+                "step": "sending_code",
+                "digits": "",
+                "expires": time.time() + _REG_TIMEOUT,
+            }
+            _send_or_edit(
+                f"📲 در حال ارسال کد تایید به شماره ثبت‌شده‌ی شما...\n<code>{stored_phone}</code>",
+                call.message.chat.id, call.message.message_id,
+            )
+            _send_verification_code(tg_id, stored_phone, chat_id=call.message.chat.id)
+        except Exception as e:
+            print(f"❌ خطا در callback_react_prev_confirm: {e}")
+            try:
+                _bot.answer_callback_query(call.id, f"❌ خطا: {str(e)[:80]}", show_alert=True)
+            except Exception:
+                pass
+
+    # ── انتخاب «شماره جدید» → درخواست شماره جدید و ادامه‌ی فرآیند ثبت‌نام ─────
+    @_bot.callback_query_handler(func=lambda call: call.data == "react_new")
+    def callback_react_new(call):
+        if not require_membership_callback(call):
+            return
+        tg_id = call.from_user.id
+        _bot.answer_callback_query(call.id)
+
+        _reg_sessions[tg_id] = {
+            "step": "await_contact",
+            "digits": "",
+            "expires": time.time() + _REG_TIMEOUT,
+        }
+        try:
+            _bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        kb.add(types.KeyboardButton("📱 تایید شماره من", request_contact=True))
+        _bot.send_message(
+            tg_id,
+            "📱 <b>شماره جدید</b>\n\n"
+            "برای ادامه، شماره جدیدی که می‌خواهید سلف با آن فعال شود را با دکمه زیر ارسال کن 👇\n\n"
+            "⏱ این فرم ۵ دقیقه اعتبار دارد.",
+            reply_markup=kb,
+        )
 
     def _send_start_approval_request(message):
         """برای ادمین درخواست ورود کاربر را با دکمه‌های تایید/رد ارسال می‌کند"""
